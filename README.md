@@ -1,7 +1,7 @@
 # CovidDiagnostic
 Diagnostic of Covid by Cough
 We have 3 files here :
-- preparation.py :  Dataloader + preparation of the datas
+- preparation.py :  preparation of the datas   (minilibrary speech)
 - train.yaml: hyperparamters files
 - train.py: main file for the process
 
