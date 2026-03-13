@@ -1,0 +1,107 @@
+# ############################################################################
+# CovidDiagnostic — ECAPA-TDNN Training Configuration
+# Author: Sami Bahig, MD MSc — Université de Montréal / MILA
+# ############################################################################
+
+# Experiment
+seed: 1986
+__set_seed: !apply:torch.manual_seed [!ref <seed>]
+
+output_folder: results/covid_ecapa
+save_folder: !ref <output_folder>/save
+train_log: !ref <output_folder>/train_log.txt
+
+# ############################################################################
+# Data
+# ############################################################################
+
+data_folder: data/
+train_annotation: !ref <data_folder>/train.csv
+valid_annotation: !ref <data_folder>/valid.csv
+test_annotation: !ref <data_folder>/test.csv
+
+# Audio settings
+sample_rate: 16000
+max_duration: 5.0       # seconds — max cough clip length
+
+# ############################################################################
+# Training Hyperparameters
+# ############################################################################
+
+number_of_epochs: 30
+batch_size: 32
+lr: 0.001
+lr_final: 0.0001
+
+# Optimizer
+opt_class: !name:torch.optim.Adam
+  lr: !ref <lr>
+
+# Scheduler
+lr_scheduler: !new:speechbrain.nnet.schedulers.CyclicCosineScheduler
+  lr_initial: !ref <lr>
+  lr_final: !ref <lr_final>
+  n_warmup_steps: 1000
+
+# ############################################################################
+# Model — ECAPA-TDNN
+# ############################################################################
+
+n_mels: 80                # number of mel filterbanks
+emb_size: 192             # embedding dimension
+channels: [1024, 1024, 1024, 1024, 3072]
+kernel_sizes: [5, 3, 3, 3, 1]
+dilations: [1, 2, 3, 4, 1]
+attention_channels: 128
+lin_neurons: 192
+
+compute_features: !new:speechbrain.lobes.features.Fbank
+  sample_rate: !ref <sample_rate>
+  n_mels: !ref <n_mels>
+
+mean_var_norm: !new:speechbrain.processing.features.InputNormalization
+  norm_type: sentence
+  std_norm: False
+
+embedding_model: !new:speechbrain.lobes.models.ECAPA_TDNN.ECAPA_TDNN
+  input_size: !ref <n_mels>
+  channels: !ref <channels>
+  kernel_sizes: !ref <kernel_sizes>
+  dilations: !ref <dilations>
+  attention_channels: !ref <attention_channels>
+  lin_neurons: !ref <lin_neurons>
+
+classifier: !new:speechbrain.nnet.linear.Linear
+  input_size: !ref <lin_neurons>
+  n_neurons: 2            # COVID Positive / Negative
+
+# ############################################################################
+# Loss & Metrics
+# ############################################################################
+
+compute_cost: !name:speechbrain.nnet.losses.nll_loss
+
+error_stats: !name:speechbrain.utils.metric_stats.MetricStats
+  metric: !name:speechbrain.nnet.losses.classification_error
+
+# ############################################################################
+# Checkpointing
+# ############################################################################
+
+checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
+  checkpoints_dir: !ref <save_folder>
+  recoverables:
+    embedding_model: !ref <embedding_model>
+    classifier: !ref <classifier>
+    normalizer: !ref <mean_var_norm>
+    counter: !ref <epoch_counter>
+
+epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
+  limit: !ref <number_of_epochs>
+
+# ############################################################################
+# Logging
+# ############################################################################
+
+train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
+  save_file: !ref <train_log>
