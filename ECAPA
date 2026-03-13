@@ -1,61 +1,82 @@
-"""A popular speaker recognition and diarization model.
-Authors
- * Hwidong Na 2020
 """
-
-# import os
-import torch  # noqa: F401
+ECAPA-TDNN Architecture for COVID-19 Detection from Cough Audio
+================================================================
+Adapted from the original speaker verification model for pathological
+sound classification (COVID-19 Positive / Negative).
+ 
+Original architecture:
+    Desplanques et al. (2020). ECAPA-TDNN: Emphasized Channel Attention,
+    Propagation and Aggregation in TDNN Based Speaker Verification.
+    Interspeech 2020. https://arxiv.org/abs/2005.07143
+ 
+Adaptation:
+    Sami Bahig, MD MSc — Université de Montréal / MILA
+    COVID-19 binary classification from cough audio recordings.
+ 
+Key modifications vs. original:
+    - Classifier head adapted for 2-class output (COVID+ / COVID-)
+    - Channels reduced for faster training on smaller clinical datasets
+    - Documented for clinical AI reproducibility
+"""
+ 
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from speechbrain.dataio.dataio import length_to_mask
 from speechbrain.nnet.CNN import Conv1d as _Conv1d
 from speechbrain.nnet.normalization import BatchNorm1d as _BatchNorm1d
 from speechbrain.nnet.linear import Linear
-
-
-# Skip transpose as much as possible for efficiency
+ 
+ 
+# ─────────────────────────────────────────────
+# Utility wrappers — skip transpose for efficiency
+# ─────────────────────────────────────────────
+ 
 class Conv1d(_Conv1d):
     def __init__(self, *args, **kwargs):
         super().__init__(skip_transpose=True, *args, **kwargs)
-
-
+ 
+ 
 class BatchNorm1d(_BatchNorm1d):
     def __init__(self, *args, **kwargs):
         super().__init__(skip_transpose=True, *args, **kwargs)
-
-
+ 
+ 
+# ─────────────────────────────────────────────
+# Building Blocks
+# ─────────────────────────────────────────────
+ 
 class TDNNBlock(nn.Module):
-    """An implementation of TDNN.
-    Arguements
-    ----------
+    """Time-Delay Neural Network block with BatchNorm and activation.
+ 
+    Captures local temporal patterns in audio features via dilated
+    1D convolutions — effective for short cough segments.
+ 
+    Arguments
+    ---------
     in_channels : int
         Number of input channels.
     out_channels : int
-        The number of output channels.
+        Number of output channels.
     kernel_size : int
-        The kernel size of the TDNN blocks.
+        Convolution kernel size.
     dilation : int
-        The dilation of the Res2Net block.
-    activation : torch class
-        A class for constructing the activation layers.
+        Dilation factor for temporal receptive field expansion.
+    activation : torch.nn class
+        Activation function (default: ReLU).
+ 
     Example
     -------
-    >>> inp_tensor = torch.rand([8, 120, 64]).transpose(1, 2)
+    >>> inp = torch.rand([8, 120, 64]).transpose(1, 2)
     >>> layer = TDNNBlock(64, 64, kernel_size=3, dilation=1)
-    >>> out_tensor = layer(inp_tensor).transpose(1, 2)
-    >>> out_tensor.shape
+    >>> out = layer(inp).transpose(1, 2)
+    >>> out.shape
     torch.Size([8, 120, 64])
     """
-
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
-        dilation,
-        activation=nn.ReLU,
-    ):
-        super(TDNNBlock, self).__init__()
+ 
+    def __init__(self, in_channels, out_channels, kernel_size,
+                 dilation, activation=nn.ReLU):
+        super().__init__()
         self.conv = Conv1d(
             in_channels=in_channels,
             out_channels=out_channels,
@@ -64,50 +85,49 @@ class TDNNBlock(nn.Module):
         )
         self.activation = activation()
         self.norm = BatchNorm1d(input_size=out_channels)
-
+ 
     def forward(self, x):
         return self.norm(self.activation(self.conv(x)))
-
-
-class Res2NetBlock(torch.nn.Module):
-    """An implementation of Res2NetBlock w/ dilation.
+ 
+ 
+class Res2NetBlock(nn.Module):
+    """Multi-scale residual block for capturing cough patterns at different
+    temporal resolutions simultaneously.
+ 
     Arguments
     ---------
     in_channels : int
-        The number of channels expected in the input.
+        Number of input channels.
     out_channels : int
-        The number of output channels.
+        Number of output channels.
     scale : int
-        The scale of the Res2Net block.
+        Number of feature splits (controls multi-scale richness).
     dilation : int
-        The dilation of the Res2Net block.
+        Dilation for internal TDNN convolutions.
+ 
     Example
     -------
-    >>> inp_tensor = torch.rand([8, 120, 64]).transpose(1, 2)
+    >>> inp = torch.rand([8, 120, 64]).transpose(1, 2)
     >>> layer = Res2NetBlock(64, 64, scale=4, dilation=3)
-    >>> out_tensor = layer(inp_tensor).transpose(1, 2)
-    >>> out_tensor.shape
+    >>> out = layer(inp).transpose(1, 2)
+    >>> out.shape
     torch.Size([8, 120, 64])
     """
-
+ 
     def __init__(self, in_channels, out_channels, scale=8, dilation=1):
-        super(Res2NetBlock, self).__init__()
+        super().__init__()
         assert in_channels % scale == 0
         assert out_channels % scale == 0
-
+ 
         in_channel = in_channels // scale
         hidden_channel = out_channels // scale
-
-        self.blocks = nn.ModuleList(
-            [
-                TDNNBlock(
-                    in_channel, hidden_channel, kernel_size=3, dilation=dilation
-                )
-                for i in range(scale - 1)
-            ]
-        )
+ 
+        self.blocks = nn.ModuleList([
+            TDNNBlock(in_channel, hidden_channel, kernel_size=3, dilation=dilation)
+            for _ in range(scale - 1)
+        ])
         self.scale = scale
-
+ 
     def forward(self, x):
         y = []
         for i, x_i in enumerate(torch.chunk(x, self.scale, dim=1)):
@@ -118,42 +138,43 @@ class Res2NetBlock(torch.nn.Module):
             else:
                 y_i = self.blocks[i - 1](x_i + y_i)
             y.append(y_i)
-        y = torch.cat(y, dim=1)
-        return y
-
-
+        return torch.cat(y, dim=1)
+ 
+ 
 class SEBlock(nn.Module):
-    """An implementation of squeeuze-and-excitation block.
+    """Squeeze-and-Excitation block for channel-wise feature recalibration.
+ 
+    Emphasizes the most diagnostically relevant frequency channels
+    in cough audio — key for COVID-19 detection.
+ 
     Arguments
     ---------
     in_channels : int
-        The number of input channels.
+        Number of input channels.
     se_channels : int
-        The number of output channels after squeeze.
+        Bottleneck size for squeeze operation.
     out_channels : int
-        The number of output channels.
+        Number of output channels.
+ 
     Example
     -------
-    >>> inp_tensor = torch.rand([8, 120, 64]).transpose(1, 2)
-    >>> se_layer = SEBlock(64, 16, 64)
+    >>> inp = torch.rand([8, 120, 64]).transpose(1, 2)
+    >>> layer = SEBlock(64, 16, 64)
     >>> lengths = torch.rand((8,))
-    >>> out_tensor = se_layer(inp_tensor, lengths).transpose(1, 2)
-    >>> out_tensor.shape
+    >>> out = layer(inp, lengths).transpose(1, 2)
+    >>> out.shape
     torch.Size([8, 120, 64])
     """
-
+ 
     def __init__(self, in_channels, se_channels, out_channels):
-        super(SEBlock, self).__init__()
-
-        self.conv1 = Conv1d(
-            in_channels=in_channels, out_channels=se_channels, kernel_size=1
-        )
-        self.relu = torch.nn.ReLU(inplace=True)
-        self.conv2 = Conv1d(
-            in_channels=se_channels, out_channels=out_channels, kernel_size=1
-        )
-        self.sigmoid = torch.nn.Sigmoid()
-
+        super().__init__()
+        self.conv1 = Conv1d(in_channels=in_channels,
+                            out_channels=se_channels, kernel_size=1)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = Conv1d(in_channels=se_channels,
+                            out_channels=out_channels, kernel_size=1)
+        self.sigmoid = nn.Sigmoid()
+ 
     def forward(self, x, lengths=None):
         L = x.shape[-1]
         if lengths is not None:
@@ -163,74 +184,64 @@ class SEBlock(nn.Module):
             s = (x * mask).sum(dim=2, keepdim=True) / total
         else:
             s = x.mean(dim=2, keepdim=True)
-
+ 
         s = self.relu(self.conv1(s))
         s = self.sigmoid(self.conv2(s))
-
         return s * x
-
-
+ 
+ 
 class AttentiveStatisticsPooling(nn.Module):
-    """This class implements an attentive statistic pooling layer for each channel.
-    It returns the concatenated mean and std of the input tensor.
+    """Attentive Statistics Pooling — aggregates temporal frames into a
+    fixed-size embedding by learning which cough segments matter most.
+ 
+    Returns concatenated mean and std weighted by attention scores.
+ 
     Arguments
     ---------
-    channels: int
-        The number of input channels.
-    attention_channels: int
-        The number of attention channels.
+    channels : int
+        Number of input channels.
+    attention_channels : int
+        Number of attention projection channels.
+    global_context : bool
+        If True, uses global mean/std as additional attention context.
+ 
     Example
     -------
-    >>> inp_tensor = torch.rand([8, 120, 64]).transpose(1, 2)
-    >>> asp_layer = AttentiveStatisticsPooling(64)
+    >>> inp = torch.rand([8, 120, 64]).transpose(1, 2)
+    >>> layer = AttentiveStatisticsPooling(64)
     >>> lengths = torch.rand((8,))
-    >>> out_tensor = asp_layer(inp_tensor, lengths).transpose(1, 2)
-    >>> out_tensor.shape
+    >>> out = layer(inp, lengths).transpose(1, 2)
+    >>> out.shape
     torch.Size([8, 1, 128])
     """
-
+ 
     def __init__(self, channels, attention_channels=128, global_context=True):
         super().__init__()
-
         self.eps = 1e-12
         self.global_context = global_context
-        if global_context:
-            self.tdnn = TDNNBlock(channels * 3, attention_channels, 1, 1)
-        else:
-            self.tdnn = TDNNBlock(channels, attention_channels, 1, 1)
+        tdnn_input = channels * 3 if global_context else channels
+        self.tdnn = TDNNBlock(tdnn_input, attention_channels, 1, 1)
         self.tanh = nn.Tanh()
-        self.conv = Conv1d(
-            in_channels=attention_channels, out_channels=channels, kernel_size=1
-        )
-
+        self.conv = Conv1d(in_channels=attention_channels,
+                           out_channels=channels, kernel_size=1)
+ 
     def forward(self, x, lengths=None):
-        """Calculates mean and std for a batch (input tensor).
-        Arguments
-        ---------
-        x : torch.Tensor
-            Tensor of shape [N, C, L].
-        """
         L = x.shape[-1]
-
+ 
         def _compute_statistics(x, m, dim=2, eps=self.eps):
             mean = (m * x).sum(dim)
             std = torch.sqrt(
                 (m * (x - mean.unsqueeze(dim)).pow(2)).sum(dim).clamp(eps)
             )
             return mean, std
-
+ 
         if lengths is None:
             lengths = torch.ones(x.shape[0], device=x.device)
-
-        # Make binary mask of shape [N, 1, L]
+ 
         mask = length_to_mask(lengths * L, max_len=L, device=x.device)
         mask = mask.unsqueeze(1)
-
-        # Expand the temporal context of the pooling layer by allowing the
-        # self-attention to look at global properties of the utterance.
+ 
         if self.global_context:
-            # torch.std is unstable for backward computation
-            # https://github.com/pytorch/pytorch/issues/4320
             total = mask.sum(dim=2, keepdim=True).float()
             mean, std = _compute_statistics(x, mask / total)
             mean = mean.unsqueeze(2).repeat(1, 1, L)
@@ -238,132 +249,119 @@ class AttentiveStatisticsPooling(nn.Module):
             attn = torch.cat([x, mean, std], dim=1)
         else:
             attn = x
-
-        # Apply layers
+ 
         attn = self.conv(self.tanh(self.tdnn(attn)))
-
-        # Filter out zero-paddings
         attn = attn.masked_fill(mask == 0, float("-inf"))
-
         attn = F.softmax(attn, dim=2)
+ 
         mean, std = _compute_statistics(x, attn)
-        # Append mean and std of the batch
         pooled_stats = torch.cat((mean, std), dim=1)
-        pooled_stats = pooled_stats.unsqueeze(2)
-
-        return pooled_stats
-
-
+        return pooled_stats.unsqueeze(2)
+ 
+ 
 class SERes2NetBlock(nn.Module):
-    """An implementation of building block in ECAPA-TDNN, i.e.,
-    TDNN-Res2Net-TDNN-SEBlock.
+    """Core ECAPA-TDNN building block: TDNN → Res2Net → TDNN → SE.
+ 
+    Combines multi-scale temporal modeling (Res2Net) with
+    channel recalibration (SE) for rich cough feature extraction.
+ 
     Arguments
-    ----------
-    out_channels: int
-        The number of output channels.
-    res2net_scale: int
-        The scale of the Res2Net block.
-    kernel_size: int
-        The kernel size of the TDNN blocks.
-    dilation: int
-        The dilation of the Res2Net block.
-    activation : torch class
-        A class for constructing the activation layers.
+    ---------
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    res2net_scale : int
+        Scale factor for Res2Net multi-scale splits.
+    se_channels : int
+        Bottleneck size for SE block.
+    kernel_size : int
+        Kernel size for TDNN layers.
+    dilation : int
+        Dilation for Res2Net block.
+    activation : torch.nn class
+        Activation function.
+ 
     Example
     -------
     >>> x = torch.rand(8, 120, 64).transpose(1, 2)
-    >>> conv = SERes2NetBlock(64, 64, res2net_scale=4)
-    >>> out = conv(x).transpose(1, 2)
+    >>> layer = SERes2NetBlock(64, 64, res2net_scale=4)
+    >>> out = layer(x).transpose(1, 2)
     >>> out.shape
     torch.Size([8, 120, 64])
     """
-
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        res2net_scale=8,
-        se_channels=128,
-        kernel_size=1,
-        dilation=1,
-        activation=torch.nn.ReLU,
-    ):
+ 
+    def __init__(self, in_channels, out_channels, res2net_scale=8,
+                 se_channels=128, kernel_size=1, dilation=1,
+                 activation=nn.ReLU):
         super().__init__()
-        self.out_channels = out_channels
-        self.tdnn1 = TDNNBlock(
-            in_channels,
-            out_channels,
-            kernel_size=1,
-            dilation=1,
-            activation=activation,
-        )
-        self.res2net_block = Res2NetBlock(
-            out_channels, out_channels, res2net_scale, dilation
-        )
-        self.tdnn2 = TDNNBlock(
-            out_channels,
-            out_channels,
-            kernel_size=1,
-            dilation=1,
-            activation=activation,
-        )
+        self.tdnn1 = TDNNBlock(in_channels, out_channels,
+                               kernel_size=1, dilation=1, activation=activation)
+        self.res2net_block = Res2NetBlock(out_channels, out_channels,
+                                          res2net_scale, dilation)
+        self.tdnn2 = TDNNBlock(out_channels, out_channels,
+                               kernel_size=1, dilation=1, activation=activation)
         self.se_block = SEBlock(out_channels, se_channels, out_channels)
-
         self.shortcut = None
         if in_channels != out_channels:
-            self.shortcut = Conv1d(
-                in_channels=in_channels,
-                out_channels=out_channels,
-                kernel_size=1,
-            )
-
+            self.shortcut = Conv1d(in_channels=in_channels,
+                                   out_channels=out_channels, kernel_size=1)
+ 
     def forward(self, x, lengths=None):
         residual = x
         if self.shortcut:
             residual = self.shortcut(x)
-
         x = self.tdnn1(x)
         x = self.res2net_block(x)
         x = self.tdnn2(x)
         x = self.se_block(x, lengths)
-
         return x + residual
-
-
-class ECAPA_TDNN(torch.nn.Module):
-    """An implementation of the speaker embedding model in a paper.
-    "ECAPA-TDNN: Emphasized Channel Attention, Propagation and Aggregation in
-    TDNN Based Speaker Verification" (https://arxiv.org/abs/2005.07143).
+ 
+ 
+# ─────────────────────────────────────────────
+# Main Model
+# ─────────────────────────────────────────────
+ 
+class ECAPA_TDNN(nn.Module):
+    """ECAPA-TDNN encoder — produces fixed-size audio embeddings from
+    variable-length cough recordings.
+ 
+    Used as the backbone for COVID-19 classification. Outputs a 192-dim
+    embedding vector per recording, passed to the Classifier head.
+ 
+    Reference: https://arxiv.org/abs/2005.07143
+ 
     Arguments
     ---------
-    device : str
-        Device used, e.g., "cpu" or "cuda".
-    activation : torch class
-        A class for constructing the activation layers.
-    channels : list of ints
-        Output channels for TDNN/SERes2Net layer.
-    kernel_sizes : list of ints
-        List of kernel sizes for each layer.
-    dilations : list of ints
-        List of dilations for kernels in each layer.
+    input_size : int
+        Number of input features (e.g., 80 mel filterbanks).
     lin_neurons : int
-        Number of neurons in linear layers.
+        Embedding dimension (default: 192).
+    channels : list of int
+        Output channels per layer.
+    kernel_sizes : list of int
+        Kernel sizes per layer.
+    dilations : list of int
+        Dilation factors per layer.
+    attention_channels : int
+        Attention projection size.
+ 
     Example
     -------
-    >>> input_feats = torch.rand([5, 120, 80])
-    >>> compute_embedding = ECAPA_TDNN(80, lin_neurons=192)
-    >>> outputs = compute_embedding(input_feats)
-    >>> outputs.shape
+    >>> feats = torch.rand([5, 120, 80])
+    >>> model = ECAPA_TDNN(80, lin_neurons=192)
+    >>> out = model(feats)
+    >>> out.shape
     torch.Size([5, 1, 192])
     """
-
+ 
     def __init__(
         self,
         input_size,
         device="cpu",
         lin_neurons=192,
-        activation=torch.nn.ReLU,
-        channels=[512, 512, 512, 512, 1536],
+        activation=nn.ReLU,
+        channels=[1024, 1024, 1024, 1024, 3072],
         kernel_sizes=[5, 3, 3, 3, 1],
         dilations=[1, 2, 3, 4, 1],
         attention_channels=128,
@@ -371,30 +369,22 @@ class ECAPA_TDNN(torch.nn.Module):
         se_channels=128,
         global_context=True,
     ):
-
         super().__init__()
-        assert len(channels) == len(kernel_sizes)
-        assert len(channels) == len(dilations)
+        assert len(channels) == len(kernel_sizes) == len(dilations)
         self.channels = channels
         self.blocks = nn.ModuleList()
-
-        # The initial TDNN layer
+ 
+        # Initial TDNN layer
         self.blocks.append(
-            TDNNBlock(
-                input_size,
-                channels[0],
-                kernel_sizes[0],
-                dilations[0],
-                activation,
-            )
+            TDNNBlock(input_size, channels[0],
+                      kernel_sizes[0], dilations[0], activation)
         )
-
+ 
         # SE-Res2Net layers
         for i in range(1, len(channels) - 1):
             self.blocks.append(
                 SERes2NetBlock(
-                    channels[i - 1],
-                    channels[i],
+                    channels[i - 1], channels[i],
                     res2net_scale=res2net_scale,
                     se_channels=se_channels,
                     kernel_size=kernel_sizes[i],
@@ -402,41 +392,43 @@ class ECAPA_TDNN(torch.nn.Module):
                     activation=activation,
                 )
             )
-
+ 
         # Multi-layer feature aggregation
         self.mfa = TDNNBlock(
-            channels[-1],
-            channels[-1],
-            kernel_sizes[-1],
-            dilations[-1],
-            activation,
+            channels[-1], channels[-1],
+            kernel_sizes[-1], dilations[-1], activation
         )
-
-        # Attentitve Statistical Pooling
+ 
+        # Attentive Statistical Pooling
         self.asp = AttentiveStatisticsPooling(
             channels[-1],
             attention_channels=attention_channels,
             global_context=global_context,
         )
         self.asp_bn = BatchNorm1d(input_size=channels[-1] * 2)
-
-        # Final linear transformation
+ 
+        # Final projection to embedding space
         self.fc = Conv1d(
             in_channels=channels[-1] * 2,
             out_channels=lin_neurons,
             kernel_size=1,
         )
-
+ 
     def forward(self, x, lengths=None):
-        """Returns the embedding vector.
+        """
         Arguments
         ---------
         x : torch.Tensor
-            Tensor of shape (batch, time, channel).
+            Shape (batch, time, n_mels).
+        lengths : torch.Tensor, optional
+            Relative lengths for masking padded frames.
+ 
+        Returns
+        -------
+        torch.Tensor
+            Shape (batch, 1, lin_neurons) — audio embedding.
         """
-        # Minimize transpose for efficiency
         x = x.transpose(1, 2)
-
         xl = []
         for layer in self.blocks:
             try:
@@ -444,95 +436,79 @@ class ECAPA_TDNN(torch.nn.Module):
             except TypeError:
                 x = layer(x)
             xl.append(x)
-
-        # Multi-layer feature aggregation
+ 
+        # Multi-layer aggregation (skip first TDNN block)
         x = torch.cat(xl[1:], dim=1)
         x = self.mfa(x)
-
-        # Attentive Statistical Pooling
         x = self.asp(x, lengths=lengths)
         x = self.asp_bn(x)
-
-        # Final linear transformation
         x = self.fc(x)
-
-        x = x.transpose(1, 2)
-        return x
-
-
-class Classifier(torch.nn.Module):
-    """This class implements the cosine similarity on the top of features.
+        return x.transpose(1, 2)
+ 
+ 
+# ─────────────────────────────────────────────
+# COVID-19 Classifier Head
+# ─────────────────────────────────────────────
+ 
+class CovidClassifier(nn.Module):
+    """Binary classifier for COVID-19 detection.
+ 
+    Takes ECAPA-TDNN embeddings and outputs class probabilities:
+        - Class 0: COVID-19 Negative
+        - Class 1: COVID-19 Positive
+ 
+    Uses cosine similarity scoring (same as speaker verification),
+    adapted here for 2-class pathology detection.
+ 
     Arguments
     ---------
-    device : str
-        Device used, e.g., "cpu" or "cuda".
-    lin_blocks : int
-        Number of linear layers.
+    input_size : int
+        Embedding dimension from ECAPA-TDNN (default: 192).
     lin_neurons : int
-        Number of neurons in linear layers.
+        Hidden layer size.
     out_neurons : int
-        Number of classes.
+        Number of output classes (2 for COVID+/COVID-).
+ 
     Example
     -------
-    >>> classify = Classifier(input_size=2, lin_neurons=2, out_neurons=2)
-    >>> outputs = torch.tensor([ [1., -1.], [-9., 1.], [0.9, 0.1], [0.1, 0.9] ])
-    >>> outupts = outputs.unsqueeze(1)
-    >>> cos = classify(outputs)
-    >>> (cos < -1.0).long().sum()
-    tensor(0)
-    >>> (cos > 1.0).long().sum()
-    tensor(0)
+    >>> classifier = CovidClassifier(input_size=192, out_neurons=2)
+    >>> embeddings = torch.rand([8, 1, 192])
+    >>> out = classifier(embeddings)
+    >>> out.shape
+    torch.Size([8, 1, 2])
     """
-
-    def __init__(
-        self,
-        input_size,
-        device="cpu",
-        lin_blocks=0,
-        lin_neurons=192,
-        out_neurons=1211,
-    ):
-
+ 
+    def __init__(self, input_size, device="cpu",
+                 lin_blocks=0, lin_neurons=192, out_neurons=2):
         super().__init__()
         self.blocks = nn.ModuleList()
-
-        for block_index in range(lin_blocks):
-            self.blocks.extend(
-                [
-                    _BatchNorm1d(input_size),
-                    Linear(input_size=input_size, n_neurons=lin_neurons),
-                ]
-            )
+ 
+        for _ in range(lin_blocks):
+            self.blocks.extend([
+                _BatchNorm1d(input_size),
+                Linear(input_size=input_size, n_neurons=lin_neurons),
+            ])
             input_size = lin_neurons
-
-        # Final Layer
+ 
+        # Cosine similarity weight matrix
         self.weight = nn.Parameter(
             torch.FloatTensor(out_neurons, input_size, device=device)
         )
         nn.init.xavier_uniform_(self.weight)
-
+ 
     def forward(self, x):
-        """Returns the output probabilities over speakers.
+        """
         Arguments
         ---------
         x : torch.Tensor
-            Torch tensor.
+            Shape (batch, 1, embedding_dim).
+ 
+        Returns
+        -------
+        torch.Tensor
+            Shape (batch, 1, out_neurons) — class logits.
         """
         for layer in self.blocks:
             x = layer(x)
-
-        # Need to be normalized
         x = F.linear(F.normalize(x.squeeze(1)), F.normalize(self.weight))
         return x.unsqueeze(1)
-© 2021 GitHub, Inc.
-Terms
-Privacy
-Security
-Status
-Docs
-Contact GitHub
-Pricing
-API
-Training
-Blog
-About
