@@ -176,17 +176,7 @@ python train.py train.yaml --eval
 - Orlandic et al. (2021). *The COUGHVID crowdsourcing dataset.* Scientific Data.
 - Radhakrishnan et al. (2021). *Exploring Automatic Diagnosis of COVID-19 from Crowdsourced Respiratory Sound Data.* KDD 2021.
 
----
 
-## 🔗 Related Projects
-
-| Project | Description | Link |
-|---|---|---|
-| **RecoverProject** | Long COVID — Metabolomic & proteomic ML | [GitHub](https://github.com/samibahig) |
-| **FAERS 2025** | FDA pharmacovigilance — 28M records | [GitHub](https://github.com/samibahig) |
-| **Protocol TDM** | OCR + CamemBERT — Radiology classification | [GitHub](https://github.com/samibahig) |
-
----
 
 ## 👤 Author
 
