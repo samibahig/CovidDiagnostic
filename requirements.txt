@@ -1,3 +1,4 @@
+pip freeze | grep -E "torch|speechbrain|numpy|pandas|librosa"
 # Core Deep Learning
 torch>=1.9.0
 torchaudio>=0.9.0
