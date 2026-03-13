@@ -103,7 +103,19 @@ CovidDiagnostic/
 ├── 🐍 train.py             ← Main training script
 └── 📖 README.md
 ```
+## 📦 Dataset
 
+This project was originally developed using a private COVID-19 cough audio dataset.
+
+For public benchmarking and reproducibility, the following open datasets are recommended:
+
+| Dataset | Description | Link |
+|---|---|---|
+| **COUGHVID** | 20,000+ crowdsourced cough recordings with COVID labels | [Zenodo](https://zenodo.org/record/4048312) |
+| **Coswara** | Breathing, cough, and voice sounds for COVID-19 diagnosis | [GitHub](https://github.com/iiscleap/Coswara-Data) |
+| **Cambridge COVID Sound** | Cough and breathing recordings from COVID+ patients | [Dataset](https://www.covid-19-sounds.org) |
+
+> ⚠️ This tool is designed as a pre-screening aid only — not a replacement for clinical testing.
 ---
 
 ## 🚀 Quick Start
