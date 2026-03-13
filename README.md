@@ -153,7 +153,7 @@ python train.py train.yaml --eval
 | **Deep Learning** | PyTorch |
 | **Architecture** | ECAPA-TDNN |
 | **Audio Processing** | torchaudio |
-| **Data Pipeline** | MiniLibrispeech-style CSV manifests |
+| Data Pipeline	MiniLibrispeech-style JSON manifests|
 
 ---
 
