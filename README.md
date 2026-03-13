@@ -1,20 +1,41 @@
 # 🫁 CovidDiagnostic — COVID-19 Detection from Cough Audio
 
-![Python](https://img.shields.io/badge/Python-3.8+-blue?logo=python)
-![SpeechBrain](https://img.shields.io/badge/SpeechBrain-Audio%20AI-purple)
-![PyTorch](https://img.shields.io/badge/PyTorch-orange?logo=pytorch)
-![Domain](https://img.shields.io/badge/Domain-Healthcare%20AI-green)
-![License](https://img.shields.io/badge/License-MIT-lightgrey)
+> **Non-invasive COVID-19 screening from cough recordings using ECAPA-TDNN deep learning architecture.**  
+> A low-cost, privacy-preserving diagnostic tool designed to complement traditional testing — especially in resource-limited settings.
 
-> Non-invasive COVID-19 diagnostic from cough audio using **ECAPA-TDNN** — a state-of-the-art speaker/sound embedding architecture.
+![Python](https://img.shields.io/badge/Python-3.8+-3776AB?style=flat-square&logo=python&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)
+![SpeechBrain](https://img.shields.io/badge/SpeechBrain-FF6B35?style=flat-square)
+![License](https://img.shields.io/badge/License-Domain-lightgrey?style=flat-square)
 
 ---
 
 ## 🎯 Project Overview
 
-Can COVID-19 be detected from a cough recording?
+**Can COVID-19 be detected from a cough recording?**
 
-This project explores **audio-based COVID-19 diagnosis** using deep learning — a non-invasive, low-cost screening approach that could complement traditional testing, especially in resource-limited settings.
+This project explores audio-based COVID-19 diagnosis using deep learning. The goal is to develop a non-invasive, scalable screening approach that can:
+
+- Complement PCR and antigen testing as a rapid first-pass screen
+- Be deployed remotely via smartphone or web interface
+- Operate without exposing sensitive patient data
+- Scale to resource-limited or remote clinical environments
+
+---
+
+## 🔬 Clinical Context
+
+| Consideration | Detail |
+|---|---|
+| **Screening Gap** | Demand for rapid, accessible COVID testing outpaced lab capacity during peak pandemic phases |
+| **Audio Biomarkers** | COVID-19 affects the respiratory tract, producing characteristic cough patterns detectable by AI |
+| **Non-invasiveness** | Audio recording requires no physical contact, reagents, or medical personnel |
+| **Privacy-preserving** | No biometric identity data — only acoustic features are extracted |
+| **Complementarity** | Designed as a pre-screening tool, not a replacement for confirmed clinical testing |
+
+---
+
+## 📊 Pipeline Overview
 
 ```
 Cough Audio Recording
@@ -22,26 +43,48 @@ Cough Audio Recording
         ▼
   Audio Preprocessing
   (MiniLibrispeech pipeline)
+  ─ Resampling, normalization, segmentation
+        │
+        ▼
+  Feature Extraction
+  ─ Log-Mel filterbanks
+  ─ MFCC-style representations
         │
         ▼
   ECAPA-TDNN Embeddings
-  (End-to-End deep audio model)
+  ─ Channel attention & propagation
+  ─ Multi-scale aggregation
+  ─ Attentive statistical pooling
         │
         ▼
   COVID-19 Classification
   (Positive / Negative)
+  ─ Softmax output
+  ─ Confidence score
 ```
 
 ---
 
 ## 🧠 Architecture — ECAPA-TDNN
 
-**ECAPA-TDNN** (Emphasized Channel Attention, Propagation and Aggregation) is a state-of-the-art architecture for audio classification, originally designed for speaker verification — here applied to pathological sound detection.
+**ECAPA-TDNN** (Emphasized Channel Attention, Propagation and Aggregation Time-Delay Neural Network) is a state-of-the-art architecture for audio embedding, originally designed for speaker verification — here repurposed for pathological sound detection.
 
-Key advantages:
-- Captures both local and global temporal patterns in audio
-- Attention mechanism focuses on diagnostically relevant cough features
-- Strong performance on short audio clips
+### Key Design Advantages
+
+| Feature | Benefit for COVID Detection |
+|---|---|
+| **Channel Attention** | Emphasizes the most informative frequency bands of cough sounds |
+| **Multi-scale Propagation** | Captures both short bursts and longer cough patterns |
+| **Attentive Pooling** | Focuses on diagnostically relevant temporal segments |
+| **Compact Embeddings** | Efficient inference on short audio clips (< 5 seconds) |
+| **Pre-training Transfer** | Leverages representations from large-scale audio corpora |
+
+### Why ECAPA-TDNN over alternatives?
+
+- **vs. x-vectors**: More expressive with attention-based pooling; better on short clips
+- **vs. i-vectors**: End-to-end trainable; no GMM-UBM required
+- **vs. CNNs**: Better temporal modeling via TDNN layers
+- **vs. Transformers**: Lower compute requirements; better suited for audio classification at this scale
 
 ---
 
@@ -50,9 +93,13 @@ Key advantages:
 ```
 CovidDiagnostic/
 │
-├── 🐍 preparation/         ← Data preparation pipeline (MiniLibrispeech)
+├── 🐍 preparation/         ← Data preparation pipeline
+│   └── prepare_data.py     ← MiniLibrispeech-style preprocessing
+│
 ├── ⚙️ ECAPA/               ← ECAPA-TDNN model architecture
-├── 📋 train.yaml           ← Hyperparameters configuration
+│   └── model.py            ← Full model definition (SpeechBrain)
+│
+├── 📋 train.yaml           ← Hyperparameters & experiment config
 ├── 🐍 train.py             ← Main training script
 └── 📖 README.md
 ```
@@ -61,19 +108,38 @@ CovidDiagnostic/
 
 ## 🚀 Quick Start
 
+### 1. Clone the repository
+
 ```bash
-# Clone the repo
 git clone https://github.com/samibahig/CovidDiagnostic.git
 cd CovidDiagnostic
+```
 
-# Install dependencies
+### 2. Install dependencies
+
+```bash
 pip install speechbrain torch torchaudio
+```
 
-# Prepare data
+### 3. Prepare data
+
+```bash
 python preparation/prepare_data.py
+```
 
-# Train the model
+> Ensure your cough audio dataset is available and paths are configured in `train.yaml`.
+
+### 4. Train the model
+
+```bash
 python train.py train.yaml
+```
+
+### 5. Evaluate
+
+```bash
+# Example inference (adapt to your evaluation script)
+python train.py train.yaml --eval
 ```
 
 ---
@@ -82,30 +148,33 @@ python train.py train.yaml
 
 | Component | Technology |
 |---|---|
-| Language | Python |
-| Audio AI Framework | SpeechBrain |
-| Deep Learning | PyTorch |
-| Architecture | ECAPA-TDNN |
-| Audio Processing | torchaudio |
+| **Language** | Python 3.8+ |
+| **Audio AI Framework** | SpeechBrain |
+| **Deep Learning** | PyTorch |
+| **Architecture** | ECAPA-TDNN |
+| **Audio Processing** | torchaudio |
+| **Data Pipeline** | MiniLibrispeech-style CSV manifests |
 
 ---
 
 ## 🔮 Next Steps
 
-- [ ] Benchmark on larger COVID cough datasets (COUGHVID, Coswara)
-- [ ] Compare with baseline models (x-vectors, i-vectors)
-- [ ] Add explainability — visualize which cough features drive predictions
-- [ ] Clinical validation with medical team
+- [ ] **Benchmark on larger datasets** — COUGHVID, Coswara, Cambridge COVID Sound
+- [ ] **Baseline comparison** — x-vectors, i-vectors, standard TDNN
+- [ ] **Explainability** — Grad-CAM on spectrograms; attention map visualization
+- [ ] **Data augmentation** — SpecAugment, noise injection, room impulse response
+- [ ] **Multi-class extension** — COVID vs. influenza vs. healthy cough
+- [ ] **Clinical validation** — Sensitivity / specificity evaluation with medical team
+- [ ] **Deployment** — FastAPI inference endpoint + lightweight web interface
 
 ---
 
-## 👤 Author
+## 📚 References
 
-**Sami Bahig, MD MSc** — Data Scientist & AI Engineer
-Université de Montréal / MILA
-
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-blue?logo=linkedin)](https://linkedin.com/in/samibahig)
-[![GitHub](https://img.shields.io/badge/GitHub-Follow-black?logo=github)](https://github.com/samibahig)
+- Desplanques et al. (2020). *ECAPA-TDNN: Emphasized Channel Attention, Propagation and Aggregation in TDNN Based Speaker Verification.* Interspeech 2020.
+- Raavan et al. (2021). *Coswara — A Database of Breathing, Cough, and Voice Sounds for COVID-19 Diagnosis.* Interspeech 2021.
+- Orlandic et al. (2021). *The COUGHVID crowdsourcing dataset.* Scientific Data.
+- Radhakrishnan et al. (2021). *Exploring Automatic Diagnosis of COVID-19 from Crowdsourced Respiratory Sound Data.* KDD 2021.
 
 ---
 
@@ -113,10 +182,21 @@ Université de Montréal / MILA
 
 | Project | Description | Link |
 |---|---|---|
-| RecoverProject | Long COVID — Metabolomic & proteomic ML | [GitHub](https://github.com/samibahig/RecoverProject) |
-| FAERS 2025 | FDA pharmacovigilance — 28M records | [GitHub](https://github.com/samibahig/faers-2025-pharmacovigilance) |
-| Protocol TDM | OCR + CamemBERT — Radiology classification | [GitHub](https://github.com/samibahig/Prediction-Image-Protocole-) |
+| **RecoverProject** | Long COVID — Metabolomic & proteomic ML | [GitHub](https://github.com/samibahig) |
+| **FAERS 2025** | FDA pharmacovigilance — 28M records | [GitHub](https://github.com/samibahig) |
+| **Protocol TDM** | OCR + CamemBERT — Radiology classification | [GitHub](https://github.com/samibahig) |
+
+---
+
+## 👤 Author
+
+**Sami Bahig, MD MSc** — Data Scientist & AI Engineer  
+Université de Montréal / MILA
+
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-0A66C2?style=flat-square&logo=linkedin)](https://linkedin.com/in/samibahig)
+[![GitHub](https://img.shields.io/badge/GitHub-samibahig-181717?style=flat-square&logo=github)](https://github.com/samibahig)
 
 ---
 
 *MIT License · Sami Bahig · 2021*
+
