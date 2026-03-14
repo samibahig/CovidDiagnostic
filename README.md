@@ -193,7 +193,7 @@ python train.py train.yaml --eval
 ## 👤 Author
 
 **Sami Bahig, MD MSc** — Data Scientist & AI Engineer  
-Université de Montréal / MILA
+MILA Alumni
 
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-0A66C2?style=flat-square&logo=linkedin)](https://linkedin.com/in/samibahig)
 [![GitHub](https://img.shields.io/badge/GitHub-samibahig-181717?style=flat-square&logo=github)](https://github.com/samibahig)
